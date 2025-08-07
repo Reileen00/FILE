@@ -7,19 +7,14 @@ import (
 )
 
 func TestTCPTransport(t *testing.T) {
-	listenAddr := ":4000"
-	tr := NewTCPTransport(listenAddr)
+	opts := TCPTransportOpts{
+		ListenAddr:    ":3000",
+		HandshakeFunc: NOPHandshakeFunc,
+		Decoder:       DefaultDecoder{},
+	}
+	tr := NewTCPTransport(opts)
+	assert.Equal(t, tr.ListenAddr, ":3000")
 
-	// ✅ Fix: expected, actual order
-	assert.Equal(t, listenAddr, tr.listenAddress)
-
-	// ✅ Run ListenAndAccept and ensure it doesn't return an error
-	go func() {
-		err := tr.ListenAndAccept()
-		assert.Nil(t, err)
-	}()
-
-	// ✅ Short delay to let goroutine start
-	// In real code you'd use sync.WaitGroup or context
+	assert.Nil(t, tr.ListenAndAccept())
 	select {}
 }

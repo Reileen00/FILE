@@ -4,5 +4,7 @@ build:
 run: build
 	@./bin/fs
 
+.PHONY: test
+
 test:
-	@go test ./... -v
+	go test ./... -v
