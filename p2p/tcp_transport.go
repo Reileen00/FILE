@@ -6,13 +6,9 @@ import (
 	"sync"
 )
 
-// TCPPeer represents the remote node over a TCP extablished connection.
+// TCPPeer represents the remote node over a TCP established connection.
 type TCPPeer struct {
-	// conn is the underlying connection of the peer
-	conn net.Conn
-
-	// if we dial and retrieve a connection => outbound == true
-	// if we accept and retrieve a connection => outbound == false
+	conn     net.Conn
 	outbound bool
 }
 
@@ -28,25 +24,23 @@ type TCPTransport struct {
 	listener      net.Listener
 
 	mu    sync.RWMutex
-	peers map[net.Addr]Peer
+	peers map[net.Addr]*TCPPeer
 }
 
 func NewTCPTransport(listenAddr string) *TCPTransport {
 	return &TCPTransport{
 		listenAddress: listenAddr,
+		peers:         make(map[net.Addr]*TCPPeer),
 	}
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
-	var (
-		err error
-	)
-	t.listener, err := net.Listen("tcp", t.listenAddress)
+	var err error
+	t.listener, err = net.Listen("tcp", t.listenAddress)
 	if err != nil {
 		return err
 	}
 	go t.startAcceptLoop()
-
 	return nil
 }
 
@@ -55,13 +49,17 @@ func (t *TCPTransport) startAcceptLoop() {
 		conn, err := t.listener.Accept()
 		if err != nil {
 			fmt.Printf("TCP accept error: %s\n", err)
+			continue
 		}
-
 		go t.handleConn(conn)
 	}
 }
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
-	peer := NewTCPPeer(conn, true)
-	fmt.Printf("new incoming connection %+v\n", conn)
+	peer := NewTCPPeer(conn, false) // false since it's inbound
+	fmt.Printf("New incoming connection from %s\n", conn.RemoteAddr())
+
+	t.mu.Lock()
+	t.peers[conn.RemoteAddr()] = peer
+	t.mu.Unlock()
 }
