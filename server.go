@@ -47,21 +47,27 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 	}
 }
 
-func (s *FileServer) broadcast(msg *Message) error {
-	s.peerLock.Lock()
-	defer s.peerLock.Unlock()
-
-	if len(s.peers) == 0 {
-		return nil
-	}
-
+func (s *FileServer) stream(msg *Message) error {
 	peers := []io.Writer{}
 	for _, peer := range s.peers {
 		peers = append(peers, peer)
 	}
-
 	mw := io.MultiWriter(peers...)
 	return gob.NewEncoder(mw).Encode(msg)
+}
+
+func (s *FileServer) broadcast(msg *Message) error {
+	msgBuf := new(bytes.Buffer)
+	if err := gob.NewEncoder(msgBuf).Encode(msg); err != nil {
+		return err
+	}
+
+	for _, peer := range s.peers {
+		if err := peer.Send(msgBuf.Bytes()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Message struct {
@@ -75,35 +81,30 @@ type MessageStoreFile struct {
 
 // StoreData stores the file locally and broadcasts it to all peers
 func (s *FileServer) StoreData(key string, r io.Reader) error {
+	var (
+		fileBuffer = new(bytes.Buffer)
+		tee        = io.TeeReader(r, fileBuffer)
+	)
 
-	buf := new(bytes.Buffer)
-	tee := io.TeeReader(r, buf)
-
-	if err := s.store.Write(key, tee); err != nil {
+	size, err := s.store.Write(key, tee)
+	if err != nil {
 		return err
 	}
 
-	msgBuf := new(bytes.Buffer)
 	msg := Message{
 		Payload: MessageStoreFile{
 			Key:  key,
-			Size: 15,
+			Size: size,
 		},
 	}
-	if err := gob.NewEncoder(msgBuf).Encode(msg); err != nil {
+	if err := s.broadcast(&msg); err != nil {
 		return err
 	}
-
-	for _, peer := range s.peers {
-		if err := peer.Send(buf.Bytes()); err != nil {
-			return err
-		}
-	}
-
 	time.Sleep(time.Second * 3)
 
+	// TODO: use a multiwriter here.
 	for _, peer := range s.peers {
-		n, err := io.Copy(peer, r)
+		n, err := io.Copy(peer, fileBuffer)
 		if err != nil {
 			return err
 		}
@@ -162,9 +163,12 @@ func (s *FileServer) handleMessageStoreFile(from string, msg MessageStoreFile) e
 	if !ok {
 		return fmt.Errorf("peer (%s) could not be found in the peer list", from)
 	}
-	if err := s.store.Write(msg.Key, io.LimitReader(peer, int64(msg.Size))); err != nil {
+	n, err := s.store.Write(msg.Key, io.LimitReader(peer, int64(msg.Size)))
+	if err != nil {
 		return err
 	}
+
+	fmt.Printf("written %d bytes to disk\n", n)
 
 	peer.(*p2p.TCPPeer).Wg.Done()
 
@@ -195,7 +199,7 @@ func (s *FileServer) Start() error {
 	return nil
 }
 
-func (s *FileServer) Store(key string, r io.Reader) error {
+func (s *FileServer) Store(key string, r io.Reader) (int64, error) {
 	return s.store.Write(key, r)
 }
 
