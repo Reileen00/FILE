@@ -44,12 +44,18 @@ type TCPTransport struct {
 func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportOpts: opts,
-		rpcch:            make(chan RPC),
+		rpcch:            make(chan RPC, 1024),
 	}
 }
 
+// Addr implements the Trasnport interface return the address
+// the transport is accepting connections.
+func (t *TCPTransport) Addr() string {
+	return t.ListenAddr
+}
+
 // ✅ Added to satisfy Transport interface
-func (t *TCPTransport) ListenAddr() string {
+func (t *TCPTransport) ListennAddr() string {
 	return t.TCPTransportOpts.ListenAddr
 }
 
@@ -75,12 +81,12 @@ func (t *TCPTransport) Close() error {
 
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
-	t.listener, err = net.Listen("tcp", t.ListenAddr())
+	t.listener, err = net.Listen("tcp", t.ListennAddr())
 	if err != nil {
 		return err
 	}
 	go t.startAcceptLoop()
-	log.Printf("TCP transport listening on %s\n", t.ListenAddr())
+	log.Printf("TCP transport listening on %s\n", t.ListennAddr())
 	return nil
 }
 
@@ -115,17 +121,24 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 		}
 	}
 
-	rpc := RPC{}
+	// Read loop
+
 	for {
+		rpc := RPC{}
 		err = t.Decoder.Decode(conn, &rpc)
 		if err != nil {
 			return
 		}
+
 		rpc.From = conn.RemoteAddr().String()
-		peer.Wg.Add(1)
-		fmt.Println("waiting till stream is done")
+		if rpc.Stream {
+			peer.Wg.Add(1)
+			fmt.Printf("[%s] incoming stream, waiting...\n", conn.RemoteAddr())
+			peer.Wg.Wait()
+			fmt.Printf("[%s] stream closed, resuming read loop\n", conn.RemoteAddr())
+			continue
+		}
+
 		t.rpcch <- rpc
-		peer.Wg.Wait()
-		fmt.Println("stream done continuing normal read loop")
 	}
 }
