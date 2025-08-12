@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -102,21 +101,25 @@ func (s *Store) Delete(key string) error {
 	return os.RemoveAll(firstPathNameWithRoot)
 }
 
-func (s *Store) Read(key string) (io.Reader, error) {
-	f, err := s.readStream(key)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, f)
-	return buf, err
+// FIXME: Instead of copying directly to a reader we first copy
+// this into a buffre. MAybe just return the File from readStream ?
+func (s *Store) Read(key string) (int64, io.Reader, error) {
+	return s.readStream(key)
 }
 
-func (s *Store) readStream(key string) (io.ReadCloser, error) {
+func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
-	return os.Open(pathKey.FullPath(s.Root))
+
+	file, err := os.Open(pathKey.FullPath(s.Root))
+	if err != nil {
+		return 0, nil, err
+	}
+	fi, err := file.Stat()
+
+	if err != nil {
+		return 0, nil, err
+	}
+	return fi.Size(), file, nil
 }
 
 func (s *Store) Write(key string, r io.Reader) (int64, error) {
