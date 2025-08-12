@@ -17,11 +17,15 @@ func TestCopyEncrpytDecrypt(t *testing.T) {
 	}
 
 	out := new(bytes.Buffer)
-	if _, err := copyDecrypt(key, dst, out); err != nil {
+	nw, err := copyDecrypt(key, dst, out)
+	if err != nil {
 		t.Error(err)
 	}
-
-	fmt.Println(dst.String())
+	if nw != 11+len(payload) {
+		t.Error(err)
+	}
+	fmt.Println(len(payload))
+	fmt.Println(len(out.String()))
 	fmt.Println(out.String())
 	//fmt.Println(string(dst.Bytes()))
 	fmt.Printf("raw bytes: %v\n", dst.Bytes())
